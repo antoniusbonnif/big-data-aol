@@ -1,11 +1,11 @@
 data/raw/*
 data/interim/*
-data/processed/*
 !data/raw/.gitkeep
 !data/interim/.gitkeep
-!data/processed/.gitkeep
-figures/*.png
-!figures/.gitkeep
+
+# data/processed/ dan figures/ DIPUSH sengaja -- hasil olahan (parquet/json/png)
+# kecil ukurannya dan jadi bukti eksekusi (deliverable "link source code" Assignment II).
+# raw JSON mentah (60MB+) dan file antara tetap diabaikan di atas.
 .ipynb_checkpoints/
 __pycache__/
 .DS_Store
