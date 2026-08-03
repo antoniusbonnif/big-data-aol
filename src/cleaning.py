@@ -135,6 +135,7 @@ def impute_missing(df: pd.DataFrame) -> pd.DataFrame:
         df[f"{col}_missing"] = df[col].isna().astype(int)
         df[col] = df[col].fillna(-1)
     for col in ["gap", "dmin", "rms", "nst"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
         df[col] = df[col].fillna(df[col].median())
     df["mag_type"] = df["mag_type"].fillna("unknown")
 
