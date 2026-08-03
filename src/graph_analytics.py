@@ -83,9 +83,20 @@ def compute_graph_a_metrics(G: nx.Graph) -> pd.DataFrame:
 
 
 def detect_communities(G: nx.Graph) -> dict:
-    """Louvain community detection. Return {node: community_id}."""
-    import community as community_louvain
-    return community_louvain.best_partition(G, weight="weight")
+    """Louvain community detection. Return {node: community_id}.
+
+    Pakai networkx.community.louvain_communities (built-in sejak networkx 2.8+)
+    daripada paket python-louvain terpisah -- nama modul python-louvain (`import
+    community`) collide dengan paket PyPI lain bernama sama, yang di beberapa
+    environment (termasuk Colab) bisa ke-install duluan dan menimpa python-louvain
+    tanpa API best_partition. networkx native menghindari masalah ini sepenuhnya.
+    """
+    communities = nx.community.louvain_communities(G, weight="weight", seed=42)
+    partition = {}
+    for community_id, nodes in enumerate(communities):
+        for node in nodes:
+            partition[node] = community_id
+    return partition
 
 
 def build_graph_b(df: pd.DataFrame) -> nx.Graph:
