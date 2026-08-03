@@ -1,0 +1,9 @@
+pandas
+requests
+scikit-learn
+matplotlib
+seaborn
+networkx
+python-louvain
+pyarrow
+pyspark
