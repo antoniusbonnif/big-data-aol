@@ -127,7 +127,9 @@ def cross_validate_join(df: pd.DataFrame) -> pd.DataFrame:
 # ---------- Operasi 5: Imputation ----------
 
 def impute_missing(df: pd.DataFrame) -> pd.DataFrame:
-    """mmi/cdi/felt banyak null (hanya diisi untuk gempa dirasakan) -> flag 'tidak dilaporkan', bukan drop."""
+    """mmi/cdi/felt banyak null (hanya diisi untuk gempa dirasakan) -> flag 'tidak dilaporkan', bukan drop.
+    sig null khusus BMKG (field tidak ada di sumber itu) -> estimasi dari magnitude,
+    formula proporsional ke definisi USGS sig (~skala mag^2)."""
     df = df.copy()
     for col in ["mmi", "cdi", "felt"]:
         df[f"{col}_missing"] = df[col].isna().astype(int)
@@ -135,6 +137,10 @@ def impute_missing(df: pd.DataFrame) -> pd.DataFrame:
     for col in ["gap", "dmin", "rms", "nst"]:
         df[col] = df[col].fillna(df[col].median())
     df["mag_type"] = df["mag_type"].fillna("unknown")
+
+    df["sig_estimated"] = df["sig"].isna().astype(int)
+    sig_est = 10 * (df["mag"] ** 2)
+    df["sig"] = df["sig"].fillna(sig_est)
     return df
 
 
