@@ -3,49 +3,77 @@ import numpy as np
 import pandas as pd
 
 
-def add_risk_label(df: pd.DataFrame) -> pd.DataFrame:
+HORIZON_DAYS = 90
+
+
+def add_risk_label(df: pd.DataFrame, horizon_days: int = HORIZON_DAYS,
+                   train_until_year: int = 2022) -> pd.DataFrame:
     """
-    Label risk_label (rendah/sedang/tinggi) = proxy RISIKO ZONA saat event terjadi,
-    bukan severity event itu sendiri. Dibangun dari histori zona sebelum event
-    (event_count_30d, rasio event dangkal, rasio tsunami-flag zona) -- BUKAN dari
-    mag/sig/depth event yang bersangkutan.
+    Label risk_label (rendah/sedang/tinggi) = tingkat risiko zona pada horizon
+    `horizon_days` ke DEPAN, dihitung dari kejadian yang terjadi SETELAH event
+    yang bersangkutan. Fitur model seluruhnya berasal dari masa lalu/saat ini,
+    sehingga tugasnya adalah prediksi sungguhan, bukan karakterisasi.
 
-    Alasan desain: kalau label dibuat dari `sig` (yang berkorelasi 0.95 dengan
-    `mag`), lalu `mag` dipakai jadi fitur, model "menebak ulang" input sendiri
-    -- akurasi >99% tapi bukan model yang berguna (data leakage). Dengan proxy
-    zona historis, model betul-betul memprediksi risiko dari pola wilayah,
-    independen dari besaran gempa yang sedang diprediksi.
+    Komponen skor (bobot sama):
+      - future_event_count : jumlah kejadian di zona sama dalam (t, t+horizon]
+      - future_max_mag     : magnitude maksimum di zona sama pada jendela itu
 
-    Membutuhkan `add_ml_features` sudah dijalankan lebih dulu (perlu
-    event_count_30d & zone_id). Skor risiko = weighted rank event_count_30d
-    (di zona itu) + proporsi shallow_flag di zona. Threshold percentile 60/85
-    dari skor training.
+    Keduanya diubah ke peringkat persentil lalu dirata-ratakan. Ambang persentil
+    60/85 dihitung HANYA dari data latih (year <= train_until_year) supaya
+    distribusi data uji tidak ikut menentukan batas kelas.
+
+    Catatan desain (revisi atas rancangan sebelumnya):
+    Rancangan pertama memakai `sig` sebagai dasar label. Karena `sig`
+    berkorelasi 0,95 dengan `mag`, sedangkan `mag` dipakai sebagai fitur, model
+    hanya menebak ulang masukannya sendiri dan mencapai akurasi semu di atas
+    99%. Rancangan kedua memakai statistik zona atas seluruh periode. Cara itu
+    membuat label konstan per zona, sehingga tugas klasifikasi berubah menjadi
+    identifikasi lokasi: koordinat saja sudah cukup untuk mencapai akurasi
+    99,46%. Selain itu, statistik dihitung dari seluruh data termasuk periode
+    uji, sehingga terjadi kebocoran temporal. Rancangan ketiga inilah yang
+    dipakai: label bersumber dari masa depan, fitur dari masa lalu, dan ambang
+    kelas ditetapkan hanya dari data latih.
+
+    Kejadian yang tidak memiliki jendela masa depan penuh (mendekati akhir
+    rentang data) ditandai melalui kolom `has_full_horizon` dan sebaiknya
+    dikeluarkan sebelum pelatihan.
     """
-    df = df.copy()
-    zone_stats = (
-        df.groupby("zone_id")
-        .agg(zone_event_count=("event_id", "count"), zone_shallow_ratio=("shallow_flag", "mean"))
-        .reset_index()
-    )
-    df = df.merge(zone_stats, on="zone_id", how="left")
+    df = df.copy().sort_values("time_utc").reset_index(drop=True)
+    horizon = np.timedelta64(horizon_days, "D")
 
-    rank_count = df["zone_event_count"].rank(pct=True)
-    rank_shallow = df["zone_shallow_ratio"].rank(pct=True)
-    risk_score = 0.7 * rank_count + 0.3 * rank_shallow
+    future_count = np.zeros(len(df), dtype=int)
+    future_max_mag = np.zeros(len(df), dtype=float)
 
-    p60 = risk_score.quantile(0.60)
-    p85 = risk_score.quantile(0.85)
+    for _, group in df.groupby("zone_id", sort=False):
+        pos = group.index.to_numpy()
+        times = group["time_utc"].to_numpy()
+        mags = group["mag"].to_numpy()
+        for k in range(len(pos)):
+            end = times[k] + horizon
+            lo = k + 1
+            hi = np.searchsorted(times, end, side="right")
+            if hi > lo:
+                future_count[pos[k]] = hi - lo
+                future_max_mag[pos[k]] = mags[lo:hi].max()
 
-    def label(score):
-        if score >= p85:
-            return "tinggi"
-        elif score >= p60:
-            return "sedang"
-        return "rendah"
+    df["future_event_count"] = future_count
+    df["future_max_mag"] = future_max_mag
 
+    data_end = df["time_utc"].max()
+    df["has_full_horizon"] = df["time_utc"] <= (data_end - pd.Timedelta(days=horizon_days))
+
+    risk_score = 0.5 * df["future_event_count"].rank(pct=True) + \
+                 0.5 * df["future_max_mag"].rank(pct=True)
     df["risk_score"] = risk_score
-    df["risk_label"] = risk_score.apply(label)
-    df.attrs["risk_label_thresholds"] = dict(p60=p60, p85=p85)
+
+    train_mask = (df["year"] <= train_until_year) & df["has_full_horizon"]
+    p60 = risk_score[train_mask].quantile(0.60)
+    p85 = risk_score[train_mask].quantile(0.85)
+
+    df["risk_label"] = np.where(risk_score >= p85, "tinggi",
+                        np.where(risk_score >= p60, "sedang", "rendah"))
+    df.attrs["risk_label_thresholds"] = dict(p60=float(p60), p85=float(p85),
+                                             horizon_days=horizon_days)
     return df
 
 
@@ -77,21 +105,36 @@ def add_ml_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-# mag, sig, event_count_30d, shallow_flag SENGAJA tidak dipakai sebagai fitur --
-# ketiganya komponen langsung risk_score (lihat add_risk_label), memakainya
-# sebagai fitur = data leakage kedua. energy tetap dipakai (turunan mag, tapi
-# beda skala/interpretasi -- fisik, bukan proxy skor) untuk representasi
-# energi seismik yang relevan secara ilmiah.
+# Seluruh fitur di bawah berasal dari masa lalu atau saat kejadian berlangsung,
+# sedangkan label bersumber dari jendela masa depan (lihat add_risk_label).
+# Karena itu `mag`, `shallow_flag`, dan `event_count_30d` kini boleh dipakai:
+# ketiganya informasi yang memang tersedia pada saat prediksi dilakukan.
+# `sig` tetap dikecualikan karena merupakan skor turunan USGS yang sebagian
+# dihitung dari laporan masyarakat pascakejadian, sehingga belum tentu tersedia
+# pada saat prediksi.
 FEATURE_COLUMNS = [
-    "depth_km", "gap", "dmin", "rms", "nst",
-    "energy", "event_count_7d", "days_since_last_event", "tsunami",
+    "mag", "depth_km", "gap", "dmin", "rms", "nst",
+    "energy", "shallow_flag",
+    "event_count_7d", "event_count_30d", "days_since_last_event",
+    "tsunami",
 ]
 CATEGORICAL_COLUMNS = ["mag_type"]
 TARGET_COLUMN = "risk_label"
 
 
-def temporal_split(df: pd.DataFrame, train_until_year: int = 2022):
-    """Split train/test berbasis tahun, bukan random -- cegah data leakage time-series."""
-    train = df[df["year"] <= train_until_year].copy()
-    test = df[df["year"] > train_until_year].copy()
+def temporal_split(df: pd.DataFrame, train_until_year: int = 2022,
+                   require_full_horizon: bool = True):
+    """
+    Pisahkan data latih dan uji berdasarkan tahun, bukan secara acak, untuk
+    mencegah kebocoran temporal pada data deret waktu.
+
+    Kejadian tanpa jendela masa depan penuh dikeluarkan bila
+    `require_full_horizon` bernilai True, karena labelnya dihitung dari jendela
+    yang terpotong sehingga tidak sebanding dengan kejadian lain.
+    """
+    data = df.copy()
+    if require_full_horizon and "has_full_horizon" in data.columns:
+        data = data[data["has_full_horizon"]]
+    train = data[data["year"] <= train_until_year].copy()
+    test = data[data["year"] > train_until_year].copy()
     return train, test
