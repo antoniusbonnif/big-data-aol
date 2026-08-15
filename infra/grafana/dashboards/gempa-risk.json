@@ -1,0 +1,164 @@
+{
+  "id": null,
+  "uid": "gempa-risk-dashboard",
+  "title": "Dashboard Risiko Gempa Bumi Indonesia",
+  "tags": ["gempa", "big-data", "assignment-ii"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "10s",
+  "time": {
+    "from": "2015-01-01T00:00:00.000Z",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Kejadian",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "gempa-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(*) AS value FROM earthquake_events WHERE $__timeFilter(time_utc)",
+          "datasource": { "type": "postgres", "uid": "gempa-postgres" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "thresholds" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Magnitudo Rata-rata",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "gempa-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT round(avg(mag)::numeric, 2) AS value FROM earthquake_events WHERE $__timeFilter(time_utc)",
+          "datasource": { "type": "postgres", "uid": "gempa-postgres" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "thresholds" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Berpotensi Tsunami",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "gempa-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(*) AS value FROM earthquake_events WHERE $__timeFilter(time_utc) AND tsunami = 1",
+          "datasource": { "type": "postgres", "uid": "gempa-postgres" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "value": null, "color": "green" }, { "value": 1, "color": "orange" }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Jumlah Zona Aktif",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": { "type": "postgres", "uid": "gempa-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT count(DISTINCT zone_id) AS value FROM earthquake_events WHERE $__timeFilter(time_utc)",
+          "datasource": { "type": "postgres", "uid": "gempa-postgres" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "color": { "mode": "thresholds" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Jumlah Kejadian per Waktu",
+      "description": "Geser atau perbesar rentang waktu pada time picker di kanan atas untuk memfilter seluruh dashboard.",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "gempa-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(time_utc, '1d') AS time, count(*) AS jumlah_kejadian FROM earthquake_events WHERE $__timeFilter(time_utc) GROUP BY 1 ORDER BY 1",
+          "datasource": { "type": "postgres", "uid": "gempa-postgres" }
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60 } }, "overrides": [] },
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "single" } }
+    },
+    {
+      "id": 6,
+      "type": "geomap",
+      "title": "Sebaran Lokasi Kejadian",
+      "gridPos": { "x": 0, "y": 12, "w": 14, "h": 12 },
+      "datasource": { "type": "postgres", "uid": "gempa-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT time_utc AS time, latitude, longitude, mag, depth_km, place FROM earthquake_events WHERE $__timeFilter(time_utc) ORDER BY time_utc DESC LIMIT 5000",
+          "datasource": { "type": "postgres", "uid": "gempa-postgres" }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {},
+          "color": { "mode": "continuous-GrYlRd" },
+          "min": 4,
+          "max": 8
+        },
+        "overrides": []
+      },
+      "options": {
+        "view": { "id": "coords", "lat": -2.5, "lon": 118, "zoom": 4.2 },
+        "controls": { "showZoom": true, "mouseWheelZoom": true, "showAttribution": true, "showScale": true },
+        "basemap": { "type": "osm-standard", "name": "Basemap" },
+        "layers": [
+          {
+            "type": "markers",
+            "name": "Kejadian Gempa",
+            "location": { "mode": "auto" },
+            "config": {
+              "style": {
+                "size": { "field": "mag", "fixed": 5, "min": 2, "max": 16 },
+                "color": { "field": "mag" },
+                "opacity": 0.6,
+                "symbol": { "fixed": "img/icons/marker/circle.svg", "mode": "fixed" }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Ringkasan per Zona (diurutkan Jumlah Kejadian)",
+      "gridPos": { "x": 14, "y": 12, "w": 10, "h": 12 },
+      "datasource": { "type": "postgres", "uid": "gempa-postgres" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT e.zone_id AS \"Zona\", count(*) AS \"Jumlah Kejadian\", round(avg(e.mag)::numeric, 2) AS \"Mag Rata-rata\", round(max(e.mag)::numeric, 2) AS \"Mag Maks\", round(z.pagerank::numeric, 5) AS \"PageRank\", round(z.betweenness::numeric, 4) AS \"Keperantaraan\" FROM earthquake_events e LEFT JOIN zone_metrics z ON e.zone_id = z.zone_id WHERE $__timeFilter(e.time_utc) GROUP BY e.zone_id, z.pagerank, z.betweenness ORDER BY \"Jumlah Kejadian\" DESC LIMIT 20",
+          "datasource": { "type": "postgres", "uid": "gempa-postgres" }
+        }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": { "showHeader": true, "sortBy": [{ "displayName": "Jumlah Kejadian", "desc": true }] }
+    }
+  ]
+}

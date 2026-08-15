@@ -11,3 +11,10 @@ __pycache__/
 .DS_Store
 *.pyc
 .venv/
+
+# berisi kredensial VM/DB/token -- jangan pernah di-push
+research.log
+.env
+
+# Word temp lock file
+~$*.doc*
